@@ -50,7 +50,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
       <div className="absolute inset-0 backdrop-blur-[100px]"></div>
       
       {/* Connection status indicator */}
-      <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 z-20 px-6 py-3 rounded-full font-medium text-sm transition-all duration-500 ${
+      <div className={`absolute top-20 md:top-4 left-1/2 transform -translate-x-1/2 z-20 px-6 py-3 rounded-full font-medium text-sm transition-all duration-500 ${
         connectionStatus === 'connected' 
           ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
           : connectionStatus === 'connecting' 
@@ -87,24 +87,24 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
       {/* Main video container */}
       <div className="relative flex flex-col items-center justify-center w-full h-full z-10">
         {connectionStatus === 'disconnected' ? (
-          <div className="flex flex-col items-center justify-center space-y-8 p-12 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 max-w-lg">
+          <div className="flex flex-col items-center justify-center space-y-8 p-6 md:p-12 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 max-w-lg mx-4">
             <div className="text-center space-y-4">
-              <h2 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Welcome to StrangerChat</h2>
-              <p className="text-gray-300 text-lg">Connect with people from around the world through live video chat.</p>
+              <h2 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Welcome to StrangerChat</h2>
+              <p className="text-gray-300 text-base md:text-lg">Connect with people from around the world through live video chat.</p>
             </div>
             
             <div className="w-full space-y-6">
-              <div className="flex items-center justify-center space-x-4 text-gray-400">
+              <div className="flex flex-wrap items-center justify-center gap-4 text-gray-400 text-sm md:text-base">
                 <div className="flex items-center space-x-2">
                   <Video size={20} />
                   <span>Video Chat</span>
                 </div>
-                <span>•</span>
+                <span className="hidden md:inline">•</span>
                 <div className="flex items-center space-x-2">
                   <MessageSquare size={20} />
                   <span>Text Chat</span>
                 </div>
-                <span>•</span>
+                <span className="hidden md:inline">•</span>
                 <div className="flex items-center space-x-2">
                   <Users size={20} />
                   <span>{activeUsers} Online</span>
@@ -113,7 +113,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
               
               <button 
                 onClick={startNewChat}
-                className="group relative w-full py-4 px-8 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-white font-medium rounded-full overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25 hover:scale-105 active:scale-95"
+                className="group relative w-full py-4 px-8 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-white font-medium rounded-full overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25 hover:scale-[1.02] active:scale-95"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                 <span className="relative flex items-center justify-center space-x-2">
@@ -151,7 +151,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
             )}
             
             {/* Local video */}
-            <div className="absolute bottom-24 right-6 z-20 w-1/4 max-w-[240px] min-w-[160px] aspect-video rounded-lg overflow-hidden border-2 border-white/20 shadow-xl transition-transform duration-300 hover:scale-105">
+            <div className="absolute bottom-24 right-6 z-20 w-1/4 max-w-[240px] min-w-[120px] aspect-video rounded-lg overflow-hidden border-2 border-white/20 shadow-xl transition-transform duration-300 hover:scale-105">
               <video 
                 ref={localVideoRef} 
                 autoPlay 
@@ -161,7 +161,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
               />
               {!videoState.isVideoEnabled && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                  <VideoOff className="text-white/70" size={40} />
+                  <VideoOff className="text-white/70" size={32} />
                 </div>
               )}
             </div>
@@ -170,11 +170,11 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
       </div>
       
       {/* Control bar */}
-      <div className="absolute bottom-0 left-0 right-0 z-30 py-6 px-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-        <div className="flex items-center justify-center space-x-4">
+      <div className="absolute bottom-0 left-0 right-0 z-30 py-4 md:py-6 px-4 md:px-6 bg-gradient-to-t from-black via-black/80 to-transparent">
+        <div className="flex items-center justify-center space-x-2 md:space-x-4">
           <button 
             onClick={toggleVideo}
-            className={`p-4 rounded-full backdrop-blur-md border transform hover:scale-110 active:scale-95 transition-all duration-300 ${
+            className={`p-3 md:p-4 rounded-full backdrop-blur-md border transform hover:scale-110 active:scale-95 transition-all duration-300 ${
               videoState.isVideoEnabled 
                 ? 'bg-white/10 border-white/20 hover:bg-white/20' 
                 : 'bg-red-500/20 border-red-500/30 hover:bg-red-500/30'
@@ -182,15 +182,15 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
             aria-label="Toggle video"
           >
             {videoState.isVideoEnabled ? (
-              <Video className="text-white" size={24} />
+              <Video className="text-white" size={20} />
             ) : (
-              <VideoOff className="text-white" size={24} />
+              <VideoOff className="text-white" size={20} />
             )}
           </button>
           
           <button 
             onClick={toggleAudio}
-            className={`p-4 rounded-full backdrop-blur-md border transform hover:scale-110 active:scale-95 transition-all duration-300 ${
+            className={`p-3 md:p-4 rounded-full backdrop-blur-md border transform hover:scale-110 active:scale-95 transition-all duration-300 ${
               videoState.isAudioEnabled 
                 ? 'bg-white/10 border-white/20 hover:bg-white/20' 
                 : 'bg-red-500/20 border-red-500/30 hover:bg-red-500/30'
@@ -198,9 +198,9 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
             aria-label="Toggle audio"
           >
             {videoState.isAudioEnabled ? (
-              <Mic className="text-white" size={24} />
+              <Mic className="text-white" size={20} />
             ) : (
-              <MicOff className="text-white" size={24} />
+              <MicOff className="text-white" size={20} />
             )}
           </button>
           
@@ -208,19 +208,19 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
             <>
               <button 
                 onClick={skipChat}
-                className="flex items-center space-x-2 px-6 py-4 rounded-full bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-700 hover:via-purple-700 hover:to-pink-700 text-white transform hover:scale-110 active:scale-95 transition-all duration-300 font-medium shadow-lg shadow-blue-500/25"
+                className="flex items-center space-x-2 px-4 md:px-6 py-3 md:py-4 rounded-full bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-700 hover:via-purple-700 hover:to-pink-700 text-white transform hover:scale-110 active:scale-95 transition-all duration-300 font-medium shadow-lg shadow-blue-500/25"
                 aria-label="Skip to next person"
               >
                 <SkipForward className="text-white" size={20} />
-                <span>Find Next</span>
+                <span className="hidden md:inline">Find Next</span>
               </button>
               
               <button 
                 onClick={onToggleChat}
-                className="p-4 rounded-full backdrop-blur-md bg-white/10 border border-white/20 hover:bg-white/20 transform hover:scale-110 active:scale-95 transition-all duration-300"
+                className="p-3 md:p-4 rounded-full backdrop-blur-md bg-white/10 border border-white/20 hover:bg-white/20 transform hover:scale-110 active:scale-95 transition-all duration-300"
                 aria-label="Toggle chat"
               >
-                <MessageSquare className="text-white" size={24} />
+                <MessageSquare className="text-white" size={20} />
               </button>
             </>
           )}
@@ -228,10 +228,10 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
           {connectionStatus !== 'disconnected' && (
             <button 
               onClick={handleEndChat}
-              className="p-4 rounded-full backdrop-blur-md bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 transform hover:scale-110 active:scale-95 transition-all duration-300"
+              className="p-3 md:p-4 rounded-full backdrop-blur-md bg-red-500/20 border border-red-500/30 hover:bg-red-500/30 transform hover:scale-110 active:scale-95 transition-all duration-300"
               aria-label="End chat"
             >
-              <X className="text-white" size={24} />
+              <X className="text-white" size={20} />
             </button>
           )}
         </div>

@@ -26,7 +26,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  // Scroll to bottom whenever messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);

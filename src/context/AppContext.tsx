@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ref, onValue, set, remove } from 'firebase/database';
+import { ref, onValue, set, remove, onDisconnect, serverTimestamp } from 'firebase/database';
 import { database } from '../firebase';
 import { ConnectionStatus, User, ChatMessage, VideoStreamState } from '../types';
 
@@ -46,30 +46,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
   useEffect(() => {
-    const activeUsersRef = ref(database, 'activeUsers');
-    
-    if (connectionStatus !== 'disconnected') {
-      const userRef = ref(database, `users/${user.id}`);
-      set(userRef, {
-        id: user.id,
-        name: user.name,
-        lastSeen: Date.now(),
-      });
+    const userStatusRef = ref(database, `users/${user.id}`);
+    const connectedRef = ref(database, '.info/connected');
 
-      return () => {
-        remove(userRef);
-      };
-    }
+    const unsubscribe = onValue(connectedRef, (snapshot) => {
+      if (snapshot.val() === true) {
+        const userStatus = {
+          id: user.id,
+          name: user.name,
+          online: true,
+          lastSeen: serverTimestamp(),
+        };
 
-    const unsubscribe = onValue(activeUsersRef, (snapshot) => {
-      const users = snapshot.val();
-      setActiveUsers(users ? Object.keys(users).length : 0);
+        onDisconnect(userStatusRef).set({
+          ...userStatus,
+          online: false,
+          lastSeen: serverTimestamp(),
+        });
+
+        set(userStatusRef, userStatus);
+      }
+    });
+
+    const activeUsersRef = ref(database, 'users');
+    const activeUsersUnsubscribe = onValue(activeUsersRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const users = snapshot.val();
+        const onlineUsers = Object.values(users).filter((u: any) => u.online === true);
+        setActiveUsers(onlineUsers.length);
+      } else {
+        setActiveUsers(0);
+      }
     });
 
     return () => {
       unsubscribe();
+      activeUsersUnsubscribe();
+      remove(userStatusRef);
     };
-  }, [connectionStatus, user.id]);
+  }, [user.id, user.name]);
 
   const updateVideoState = (state: Partial<VideoStreamState>) => {
     setVideoState(prev => ({ ...prev, ...state }));
@@ -166,10 +181,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error: any) {
       console.error('Error accessing media devices:', error);
       
-      // Check if it's a permission error
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         try {
-          // Try audio-only as fallback
           const audioStream = await navigator.mediaDevices.getUserMedia({
             video: false,
             audio: true
@@ -186,7 +199,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setPermissionError(null);
           return true;
         } catch (audioError: any) {
-          // Both video and audio permissions denied
           if (audioError.name === 'NotAllowedError' || audioError.name === 'PermissionDeniedError') {
             setPermissionError(
               'To use this app, please allow access to your camera and/or microphone. ' +
