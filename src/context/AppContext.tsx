@@ -44,6 +44,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeUsers, setActiveUsers] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [currentChatPartner, setCurrentChatPartner] = useState<string | null>(null);
 
   // Handle user presence and status
   useEffect(() => {
@@ -52,27 +53,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const handleConnection = async (snapshot: any) => {
       if (snapshot.val() === true) {
-        // User is connected
         const userStatus = {
           id: user.id,
-          name: user.name,
+          name: user.name || 'Anonymous',
           online: true,
           status: 'available',
           lastSeen: serverTimestamp(),
           interests: user.interests,
         };
 
-        // Set up disconnect cleanup
         await onDisconnect(userRef).remove();
-
-        // Set current status
         await set(userRef, userStatus);
       }
     };
 
     const unsubscribeConnection = onValue(connectedRef, handleConnection);
 
-    // Listen for active users
     const usersRef = ref(database, 'users');
     const unsubscribeUsers = onValue(usersRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -88,7 +84,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    // Listen for incoming chat requests
     const requestsRef = ref(database, `requests/${user.id}`);
     const unsubscribeRequests = onValue(requestsRef, async (snapshot) => {
       if (snapshot.exists() && connectionStatus === 'disconnected') {
@@ -98,20 +93,63 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         
         if (fromUserSnapshot.exists()) {
           const fromUser = fromUserSnapshot.val();
-          if (window.confirm(`${fromUser.name} wants to chat with you. Accept?`)) {
-            await set(ref(database, `responses/${request.from}`), {
-              accepted: true,
-              timestamp: serverTimestamp(),
-            });
-            setConnectionStatus('connected');
-          } else {
-            await set(ref(database, `responses/${request.from}`), {
-              accepted: false,
-              timestamp: serverTimestamp(),
-            });
-          }
+          const requestElement = document.createElement('div');
+          requestElement.id = 'chat-request-modal';
+          document.body.appendChild(requestElement);
+
+          const root = createRoot(requestElement);
+          root.render(
+            <ChatRequest
+              userName={fromUser.name || 'Anonymous'}
+              onAccept={async () => {
+                root.unmount();
+                requestElement.remove();
+                
+                await set(ref(database, `responses/${request.from}`), {
+                  accepted: true,
+                  timestamp: serverTimestamp(),
+                });
+                
+                setCurrentChatPartner(request.from);
+                setConnectionStatus('connected');
+                
+                // Update both users' status
+                await set(userRef, {
+                  ...user,
+                  status: 'chatting',
+                  chatPartner: request.from,
+                });
+                
+                await set(fromUserRef, {
+                  ...fromUser,
+                  status: 'chatting',
+                  chatPartner: user.id,
+                });
+              }}
+              onDecline={async () => {
+                root.unmount();
+                requestElement.remove();
+                
+                await set(ref(database, `responses/${request.from}`), {
+                  accepted: false,
+                  timestamp: serverTimestamp(),
+                });
+              }}
+            />
+          );
         }
         await remove(requestsRef);
+      }
+    });
+
+    // Listen for chat partner status changes
+    const chatPartnerStatusRef = ref(database, `users/${currentChatPartner}`);
+    const unsubscribeChatPartner = onValue(chatPartnerStatusRef, (snapshot) => {
+      if (currentChatPartner && !snapshot.exists()) {
+        // Chat partner disconnected
+        setConnectionStatus('disconnected');
+        setCurrentChatPartner(null);
+        clearChat();
       }
     });
 
@@ -119,9 +157,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeConnection();
       unsubscribeUsers();
       unsubscribeRequests();
+      unsubscribeChatPartner();
       remove(userRef);
     };
-  }, [user.id, user.name, connectionStatus]);
+  }, [user.id, user.name, connectionStatus, currentChatPartner]);
 
   const findAvailableUser = async () => {
     const usersRef = ref(database, 'users');
@@ -136,7 +175,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (availableUsers.length > 0) {
-        // Prioritize users with matching interests if any
         const usersWithMatchingInterests = availableUsers.filter((u: any) => {
           const commonInterests = u.interests?.filter((interest: string) => 
             user.interests.includes(interest)
@@ -158,6 +196,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const sendChatRequest = async (targetUserId: string) => {
     const requestRef = ref(database, `requests/${targetUserId}`);
     const userRef = ref(database, `users/${user.id}`);
+    const targetUserRef = ref(database, `users/${targetUserId}`);
 
     try {
       // Update own status
@@ -182,7 +221,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (snapshot.exists()) {
           const response = snapshot.val();
           if (response.accepted) {
+            setCurrentChatPartner(targetUserId);
             setConnectionStatus('connected');
+            
+            // Update both users' status
+            const targetUserSnapshot = await get(targetUserRef);
+            if (targetUserSnapshot.exists()) {
+              await set(targetUserRef, {
+                ...targetUserSnapshot.val(),
+                status: 'chatting',
+                chatPartner: user.id,
+              });
+              
+              await set(userRef, {
+                ...user,
+                status: 'chatting',
+                chatPartner: targetUserId,
+              });
+            }
           } else {
             setConnectionStatus('disconnected');
             startNewChat(); // Try another user if rejected
