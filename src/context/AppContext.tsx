@@ -45,50 +45,83 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeUsers, setActiveUsers] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
+  // Handle user presence and status
   useEffect(() => {
-    const userStatusRef = ref(database, `users/${user.id}`);
+    const userRef = ref(database, `users/${user.id}`);
     const connectedRef = ref(database, '.info/connected');
 
-    const unsubscribe = onValue(connectedRef, (snapshot) => {
+    const handleConnection = async (snapshot: any) => {
       if (snapshot.val() === true) {
+        // User is connected
         const userStatus = {
           id: user.id,
           name: user.name,
           online: true,
           status: 'available',
           lastSeen: serverTimestamp(),
+          interests: user.interests,
         };
 
-        onDisconnect(userStatusRef).set({
-          ...userStatus,
-          online: false,
-          status: 'offline',
-          lastSeen: serverTimestamp(),
-        });
+        // Set up disconnect cleanup
+        await onDisconnect(userRef).remove();
 
-        set(userStatusRef, userStatus);
+        // Set current status
+        await set(userRef, userStatus);
       }
-    });
+    };
 
-    const activeUsersRef = ref(database, 'users');
-    const activeUsersUnsubscribe = onValue(activeUsersRef, (snapshot) => {
+    const unsubscribeConnection = onValue(connectedRef, handleConnection);
+
+    // Listen for active users
+    const usersRef = ref(database, 'users');
+    const unsubscribeUsers = onValue(usersRef, (snapshot) => {
       if (snapshot.exists()) {
         const users = snapshot.val();
-        const onlineUsers = Object.values(users).filter((u: any) => 
-          u.online === true && u.id !== user.id && u.status === 'available'
+        const availableUsers = Object.values(users).filter((u: any) => 
+          u.online === true && 
+          u.id !== user.id && 
+          u.status === 'available'
         );
-        setActiveUsers(onlineUsers.length);
+        setActiveUsers(availableUsers.length);
       } else {
         setActiveUsers(0);
       }
     });
 
+    // Listen for incoming chat requests
+    const requestsRef = ref(database, `requests/${user.id}`);
+    const unsubscribeRequests = onValue(requestsRef, async (snapshot) => {
+      if (snapshot.exists() && connectionStatus === 'disconnected') {
+        const request = snapshot.val();
+        const fromUserRef = ref(database, `users/${request.from}`);
+        const fromUserSnapshot = await get(fromUserRef);
+        
+        if (fromUserSnapshot.exists()) {
+          const fromUser = fromUserSnapshot.val();
+          if (window.confirm(`${fromUser.name} wants to chat with you. Accept?`)) {
+            await set(ref(database, `responses/${request.from}`), {
+              accepted: true,
+              timestamp: serverTimestamp(),
+            });
+            setConnectionStatus('connected');
+          } else {
+            await set(ref(database, `responses/${request.from}`), {
+              accepted: false,
+              timestamp: serverTimestamp(),
+            });
+          }
+        }
+        await remove(requestsRef);
+      }
+    });
+
     return () => {
-      unsubscribe();
-      activeUsersUnsubscribe();
-      remove(userStatusRef);
+      unsubscribeConnection();
+      unsubscribeUsers();
+      unsubscribeRequests();
+      remove(userRef);
     };
-  }, [user.id, user.name]);
+  }, [user.id, user.name, connectionStatus]);
 
   const findAvailableUser = async () => {
     const usersRef = ref(database, 'users');
@@ -103,7 +136,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (availableUsers.length > 0) {
-        const randomUser = availableUsers[Math.floor(Math.random() * availableUsers.length)] as any;
+        // Prioritize users with matching interests if any
+        const usersWithMatchingInterests = availableUsers.filter((u: any) => {
+          const commonInterests = u.interests?.filter((interest: string) => 
+            user.interests.includes(interest)
+          );
+          return commonInterests?.length > 0;
+        });
+
+        const matchPool = usersWithMatchingInterests.length > 0 ? 
+          usersWithMatchingInterests : 
+          availableUsers;
+
+        const randomUser = matchPool[Math.floor(Math.random() * matchPool.length)] as any;
         return randomUser.id;
       }
     }
@@ -112,42 +157,59 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const sendChatRequest = async (targetUserId: string) => {
     const requestRef = ref(database, `requests/${targetUserId}`);
-    await set(requestRef, {
-      from: user.id,
-      timestamp: serverTimestamp(),
-    });
+    const userRef = ref(database, `users/${user.id}`);
 
-    const userStatusRef = ref(database, `users/${user.id}`);
-    await set(userStatusRef, {
-      id: user.id,
-      name: user.name,
-      online: true,
-      status: 'requesting',
-      lastSeen: serverTimestamp(),
-    });
+    try {
+      // Update own status
+      await set(userRef, {
+        id: user.id,
+        name: user.name,
+        online: true,
+        status: 'requesting',
+        lastSeen: serverTimestamp(),
+        interests: user.interests,
+      });
 
-    // Listen for response
-    const responseRef = ref(database, `responses/${user.id}`);
-    const unsubscribe = onValue(responseRef, async (snapshot) => {
-      if (snapshot.exists()) {
-        const response = snapshot.val();
-        if (response.accepted) {
-          setConnectionStatus('connected');
-          // Initialize WebRTC connection here
-        } else {
-          setConnectionStatus('disconnected');
+      // Send request
+      await set(requestRef, {
+        from: user.id,
+        timestamp: serverTimestamp(),
+      });
+
+      // Listen for response
+      const responseRef = ref(database, `responses/${user.id}`);
+      const unsubscribe = onValue(responseRef, async (snapshot) => {
+        if (snapshot.exists()) {
+          const response = snapshot.val();
+          if (response.accepted) {
+            setConnectionStatus('connected');
+          } else {
+            setConnectionStatus('disconnected');
+            startNewChat(); // Try another user if rejected
+          }
+          unsubscribe();
+          remove(responseRef);
         }
-        unsubscribe();
-        remove(responseRef);
-      }
-    });
+      });
 
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      unsubscribe();
-      remove(requestRef);
+      // Timeout after 15 seconds
+      setTimeout(async () => {
+        unsubscribe();
+        const userSnapshot = await get(userRef);
+        if (userSnapshot.exists() && userSnapshot.val().status === 'requesting') {
+          await set(userRef, {
+            ...userSnapshot.val(),
+            status: 'available',
+          });
+          remove(requestRef);
+          setConnectionStatus('disconnected');
+          startNewChat(); // Try another user if timed out
+        }
+      }, 15000);
+    } catch (error) {
+      console.error('Error sending chat request:', error);
       setConnectionStatus('disconnected');
-    }, 30000);
+    }
   };
 
   const updateVideoState = (state: Partial<VideoStreamState>) => {
@@ -201,6 +263,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const startNewChat = async () => {
+    if (connectionStatus === 'connecting') return;
+
     clearChat();
     setConnectionStatus('connecting');
     setPermissionError(null);
@@ -216,7 +280,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (targetUserId) {
         await sendChatRequest(targetUserId);
       } else {
-        setTimeout(startNewChat, 2000); // Retry after 2 seconds
+        // No users available, retry after delay
+        setTimeout(startNewChat, 2000);
       }
     } catch (error) {
       console.error('Error starting new chat:', error);
