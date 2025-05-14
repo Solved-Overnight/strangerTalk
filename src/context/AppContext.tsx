@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ref, onValue, set, remove, onDisconnect, serverTimestamp } from 'firebase/database';
+import { ref, onValue, set, remove, onDisconnect, serverTimestamp, get } from 'firebase/database';
 import { database } from '../firebase';
 import { ConnectionStatus, User, ChatMessage, VideoStreamState } from '../types';
 
@@ -55,12 +55,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           id: user.id,
           name: user.name,
           online: true,
+          status: 'available',
           lastSeen: serverTimestamp(),
         };
 
         onDisconnect(userStatusRef).set({
           ...userStatus,
           online: false,
+          status: 'offline',
           lastSeen: serverTimestamp(),
         });
 
@@ -72,7 +74,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const activeUsersUnsubscribe = onValue(activeUsersRef, (snapshot) => {
       if (snapshot.exists()) {
         const users = snapshot.val();
-        const onlineUsers = Object.values(users).filter((u: any) => u.online === true);
+        const onlineUsers = Object.values(users).filter((u: any) => 
+          u.online === true && u.id !== user.id && u.status === 'available'
+        );
         setActiveUsers(onlineUsers.length);
       } else {
         setActiveUsers(0);
@@ -85,6 +89,66 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       remove(userStatusRef);
     };
   }, [user.id, user.name]);
+
+  const findAvailableUser = async () => {
+    const usersRef = ref(database, 'users');
+    const snapshot = await get(usersRef);
+    
+    if (snapshot.exists()) {
+      const users = snapshot.val();
+      const availableUsers = Object.values(users).filter((u: any) => 
+        u.online === true && 
+        u.id !== user.id && 
+        u.status === 'available'
+      );
+      
+      if (availableUsers.length > 0) {
+        const randomUser = availableUsers[Math.floor(Math.random() * availableUsers.length)] as any;
+        return randomUser.id;
+      }
+    }
+    return null;
+  };
+
+  const sendChatRequest = async (targetUserId: string) => {
+    const requestRef = ref(database, `requests/${targetUserId}`);
+    await set(requestRef, {
+      from: user.id,
+      timestamp: serverTimestamp(),
+    });
+
+    const userStatusRef = ref(database, `users/${user.id}`);
+    await set(userStatusRef, {
+      id: user.id,
+      name: user.name,
+      online: true,
+      status: 'requesting',
+      lastSeen: serverTimestamp(),
+    });
+
+    // Listen for response
+    const responseRef = ref(database, `responses/${user.id}`);
+    const unsubscribe = onValue(responseRef, async (snapshot) => {
+      if (snapshot.exists()) {
+        const response = snapshot.val();
+        if (response.accepted) {
+          setConnectionStatus('connected');
+          // Initialize WebRTC connection here
+        } else {
+          setConnectionStatus('disconnected');
+        }
+        unsubscribe();
+        remove(responseRef);
+      }
+    });
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      unsubscribe();
+      remove(requestRef);
+      setConnectionStatus('disconnected');
+    }, 30000);
+  };
 
   const updateVideoState = (state: Partial<VideoStreamState>) => {
     setVideoState(prev => ({ ...prev, ...state }));
@@ -148,12 +212,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      const userStatusRef = ref(database, `users/${user.id}/status`);
-      set(userStatusRef, 'searching');
-      
-      const delay = Math.random() * 2000 + 1000;
-      await new Promise(resolve => setTimeout(resolve, delay));
-      setConnectionStatus('connected');
+      const targetUserId = await findAvailableUser();
+      if (targetUserId) {
+        await sendChatRequest(targetUserId);
+      } else {
+        setTimeout(startNewChat, 2000); // Retry after 2 seconds
+      }
     } catch (error) {
       console.error('Error starting new chat:', error);
       setConnectionStatus('disconnected');
