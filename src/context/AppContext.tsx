@@ -26,7 +26,7 @@ interface AppContextType {
 
 const defaultUser: User = {
   id: uuidv4(),
-  name: 'Anonymous',
+  nickname: 'Anonymous',
   interests: [],
 };
 
@@ -56,7 +56,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (snapshot.val() === true) {
         const userStatus = {
           id: user.id,
-          name: user.name || 'Anonymous',
+          nickname: user.nickname || 'Anonymous',
           online: true,
           status: 'available',
           lastSeen: serverTimestamp(),
@@ -97,12 +97,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const root = createRoot(requestElement);
           root.render(
             <ChatRequest
-              userName={fromUser.name || 'Anonymous'}
+              senderNickname={fromUser.nickname || 'Anonymous'}
+              receiverNickname={user.nickname || 'Anonymous'}
               onAccept={async () => {
                 root.unmount();
                 requestElement.remove();
 
-                // Initialize media before accepting
                 const mediaInitialized = await initializeMedia();
                 if (!mediaInitialized) {
                   await set(ref(database, `responses/${request.from}`), {
@@ -113,7 +113,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   return;
                 }
 
-                // Update response with acceptance
                 await set(ref(database, `responses/${request.from}`), {
                   accepted: true,
                   from: user.id,
@@ -123,7 +122,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 setCurrentChatPartner(request.from);
                 setConnectionStatus('connected');
 
-                // Update both users' status
                 const chatStatus = {
                   status: 'chatting',
                   chatPartner: request.from,
@@ -144,7 +142,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   lastSeen: serverTimestamp(),
                 });
 
-                // Set up chat room
                 const roomId = [user.id, request.from].sort().join('-');
                 const roomRef = ref(database, `rooms/${roomId}`);
                 await set(roomRef, {
@@ -153,7 +150,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   active: true,
                 });
 
-                // Listen for room messages
                 const messagesRef = ref(database, `rooms/${roomId}/messages`);
                 onValue(messagesRef, (snapshot) => {
                   if (snapshot.exists()) {
@@ -162,7 +158,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   }
                 });
 
-                // Clear the request
                 await remove(requestsRef);
               }}
               onDecline={async () => {
@@ -182,7 +177,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    // Listen for responses to our requests
     const responsesRef = ref(database, `responses/${user.id}`);
     const unsubscribeResponses = onValue(responsesRef, async (snapshot) => {
       if (snapshot.exists() && connectionStatus === 'connecting') {
@@ -197,7 +191,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setCurrentChatPartner(response.from);
             setConnectionStatus('connected');
 
-            // Update own status
             await set(userRef, {
               ...user,
               status: 'chatting',
@@ -206,7 +199,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               lastSeen: serverTimestamp(),
             });
 
-            // Update target user status
             await set(targetUserRef, {
               ...targetUser,
               status: 'chatting',
@@ -215,7 +207,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               lastSeen: serverTimestamp(),
             });
             
-            // Set up chat room
             const roomId = [user.id, response.from].sort().join('-');
             const roomRef = ref(database, `rooms/${roomId}`);
             await set(roomRef, {
@@ -224,7 +215,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               active: true,
             });
 
-            // Listen for room messages
             const messagesRef = ref(database, `rooms/${roomId}/messages`);
             onValue(messagesRef, (snapshot) => {
               if (snapshot.exists()) {
@@ -235,18 +225,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
         } else {
           setConnectionStatus('disconnected');
-          startNewChat(); // Try another user if rejected
+          startNewChat();
         }
         
         await remove(responsesRef);
       }
     });
 
-    // Listen for chat partner status changes
     const chatPartnerStatusRef = ref(database, `users/${currentChatPartner}`);
     const unsubscribeChatPartner = onValue(chatPartnerStatusRef, (snapshot) => {
       if (currentChatPartner && !snapshot.exists()) {
-        // Chat partner disconnected
         setConnectionStatus('disconnected');
         setCurrentChatPartner(null);
         clearChat();
@@ -261,7 +249,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeChatPartner();
       remove(userRef);
     };
-  }, [user.id, user.name, connectionStatus, currentChatPartner]);
+  }, [user.id, user.nickname, connectionStatus, currentChatPartner]);
 
   const findAvailableUser = async () => {
     const usersRef = ref(database, 'users');
@@ -276,7 +264,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (availableUsers.length > 0) {
-        // Randomize user selection
         const randomIndex = Math.floor(Math.random() * availableUsers.length);
         const randomUser = availableUsers[randomIndex] as any;
         return randomUser.id;
@@ -291,7 +278,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const targetUserRef = ref(database, `users/${targetUserId}`);
 
     try {
-      // Check if target user is still available
       const targetUserSnapshot = await get(targetUserRef);
       if (!targetUserSnapshot.exists() || targetUserSnapshot.val().status !== 'available') {
         setConnectionStatus('disconnected');
@@ -299,7 +285,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      // Update own status
       await set(userRef, {
         ...user,
         online: true,
@@ -307,13 +292,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         lastSeen: serverTimestamp(),
       });
 
-      // Send request
       await set(requestRef, {
         from: user.id,
         timestamp: serverTimestamp(),
       });
 
-      // Listen for response
       const responseRef = ref(database, `responses/${user.id}`);
       const unsubscribe = onValue(responseRef, async (snapshot) => {
         if (snapshot.exists()) {
@@ -322,7 +305,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setCurrentChatPartner(targetUserId);
             setConnectionStatus('connected');
             
-            // Update both users' status
             await set(userRef, {
               ...user,
               status: 'chatting',
@@ -331,7 +313,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               lastSeen: serverTimestamp(),
             });
 
-            // Set up chat room
             const roomId = [user.id, targetUserId].sort().join('-');
             const roomRef = ref(database, `rooms/${roomId}`);
             await set(roomRef, {
@@ -340,7 +321,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               active: true,
             });
 
-            // Listen for room messages
             const messagesRef = ref(database, `rooms/${roomId}/messages`);
             onValue(messagesRef, (snapshot) => {
               if (snapshot.exists()) {
@@ -350,14 +330,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             });
           } else {
             setConnectionStatus('disconnected');
-            startNewChat(); // Try another user if rejected
+            startNewChat();
           }
           unsubscribe();
           await remove(responseRef);
         }
       });
 
-      // Timeout after 10 seconds
       setTimeout(async () => {
         const currentUserSnapshot = await get(userRef);
         if (currentUserSnapshot.exists() && currentUserSnapshot.val().status === 'requesting') {
@@ -371,7 +350,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             lastSeen: serverTimestamp(),
           });
           setConnectionStatus('disconnected');
-          startNewChat(); // Try another user if timed out
+          startNewChat();
         }
       }, 10000);
     } catch (error) {
@@ -461,7 +440,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      // Update user status to available
       const userRef = ref(database, `users/${user.id}`);
       await set(userRef, {
         ...user,
@@ -475,7 +453,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (targetUserId) {
           await sendChatRequest(targetUserId);
         } else {
-          // No users available, retry after delay
           setTimeout(findAndConnect, 2000);
         }
       };

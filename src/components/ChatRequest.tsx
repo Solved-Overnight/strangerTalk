@@ -2,12 +2,18 @@ import React from 'react';
 import { User, MessageCircle } from 'lucide-react';
 
 interface ChatRequestProps {
-  userName: string;
+  senderNickname: string;
+  receiverNickname: string;
   onAccept: () => void;
   onDecline: () => void;
 }
 
-export const ChatRequest: React.FC<ChatRequestProps> = ({ userName, onAccept, onDecline }) => {
+export const ChatRequest: React.FC<ChatRequestProps> = ({ 
+  senderNickname, 
+  receiverNickname, 
+  onAccept, 
+  onDecline 
+}) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-gray-900 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-fade-up">
@@ -21,7 +27,7 @@ export const ChatRequest: React.FC<ChatRequestProps> = ({ userName, onAccept, on
               Chat Request
             </h3>
             <p className="text-gray-300">
-              <span className="font-medium text-blue-400">{userName}</span> wants to start a video chat with you
+              <span className="font-medium text-blue-400">{senderNickname}</span> wants to start a video chat with <span className="font-medium text-purple-400">{receiverNickname}</span>
             </p>
           </div>
           

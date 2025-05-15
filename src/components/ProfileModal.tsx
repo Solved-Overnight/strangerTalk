@@ -9,7 +9,7 @@ interface ProfileModalProps {
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) => {
   const { user, setUser } = useAppContext();
-  const [name, setName] = useState(user.name);
+  const [nickname, setNickname] = useState(user.nickname || '');
   const [interests, setInterests] = useState(user.interests.join(', '));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -21,7 +21,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
     
     setUser({
       ...user,
-      name: name || 'Anonymous',
+      nickname: nickname || 'Anonymous',
       interests: interestsArray,
     });
     
@@ -54,17 +54,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose }) =
           
           <div className="space-y-4">
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-300 mb-1">
-                Display Name
+              <label htmlFor="nickname" className="block text-sm font-medium text-gray-300 mb-1">
+                Nickname
               </label>
               <input
                 type="text"
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                id="nickname"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
                 className="w-full p-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Anonymous"
+                placeholder="Enter your nickname"
               />
+              <p className="mt-1 text-xs text-gray-400">
+                This is how other users will see you
+              </p>
             </div>
             
             <div>
