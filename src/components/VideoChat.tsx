@@ -15,7 +15,9 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
     toggleAudio, 
     skipChat,
     startNewChat,
-    activeUsers 
+    activeUsers,
+    user,
+    currentChatPartner 
   } = useAppContext();
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -67,7 +69,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
           }`}></span>
           <span>
             {connectionStatus === 'connected' 
-              ? 'Connected' 
+              ? `Connected with ${currentChatPartner?.nickname || 'Anonymous'}` 
               : connectionStatus === 'connecting' 
                 ? 'Finding someone...' 
                 : 'Disconnected'
@@ -125,14 +127,13 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
           </div>
         ) : (
           <>
+            {/* Remote video */}
             {videoState.remoteStream && connectionStatus === 'connected' ? (
               <video 
                 ref={remoteVideoRef} 
                 autoPlay 
                 playsInline 
-                className={`absolute inset-0 w-full h-full object-cover z-10 transition-opacity duration-500 ${
-                  connectionStatus === 'connected' ? 'opacity-100' : 'opacity-0'
-                }`}
+                className="absolute inset-0 w-full h-full object-cover z-10"
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
