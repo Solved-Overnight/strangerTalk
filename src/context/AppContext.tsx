@@ -13,6 +13,7 @@ interface AppContextType {
   messages: ChatMessage[];
   activeUsers: number;
   permissionError: string | null;
+  currentChatPartner: User | null;
   setUser: (user: User) => void;
   setConnectionStatus: (status: ConnectionStatus) => void;
   updateVideoState: (state: Partial<VideoStreamState>) => void;
@@ -22,7 +23,6 @@ interface AppContextType {
   skipChat: () => void;
   startNewChat: () => void;
   retryMediaAccess: () => void;
-  currentChatPartner: User | null;
 }
 
 const defaultUser: User = {
@@ -113,11 +113,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 // Update connection status after media is initialized
                 setConnectionStatus('connected');
 
-                // Send acceptance response
+                // Send acceptance response with additional info
                 await set(ref(database, `responses/${request.from}`), {
                   accepted: true,
                   from: user.id,
                   timestamp: serverTimestamp(),
+                  userInfo: {
+                    id: user.id,
+                    nickname: user.nickname,
+                    interests: user.interests
+                  }
                 });
 
                 const chatStatus = {
@@ -181,12 +186,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const response = snapshot.val();
         
         if (response.accepted) {
+          // Initialize media for the requester as well
+          await initializeMedia();
+          
           const targetUserRef = ref(database, `users/${response.from}`);
           const targetUserSnapshot = await get(targetUserRef);
           
           if (targetUserSnapshot.exists()) {
             const targetUser = targetUserSnapshot.val();
-            setCurrentChatPartner(targetUser);
+            
+            // Set current chat partner from response
+            setCurrentChatPartner({
+              id: response.from,
+              nickname: response.userInfo?.nickname || 'Anonymous',
+              interests: response.userInfo?.interests || []
+            });
+            
+            // Update connection status
             setConnectionStatus('connected');
 
             await set(userRef, {
@@ -293,6 +309,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       await set(requestRef, {
         from: user.id,
         timestamp: serverTimestamp(),
+        userInfo: {
+          id: user.id,
+          nickname: user.nickname,
+          interests: user.interests
+        }
       });
 
       const responseRef = ref(database, `responses/${user.id}`);
