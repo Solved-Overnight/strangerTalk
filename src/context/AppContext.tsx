@@ -103,22 +103,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 root.unmount();
                 requestElement.remove();
 
-                const mediaInitialized = await initializeMedia();
-                if (!mediaInitialized) {
-                  await set(ref(database, `responses/${request.from}`), {
-                    accepted: false,
-                    error: 'media_failed',
-                    timestamp: serverTimestamp(),
-                  });
-                  return;
-                }
-
-                await set(ref(database, `responses/${request.from}`), {
-                  accepted: true,
-                  from: user.id,
-                  timestamp: serverTimestamp(),
-                });
-
+                await initializeMedia();
                 setCurrentChatPartner(request.from);
                 setConnectionStatus('connected');
 
@@ -434,12 +419,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setPermissionError(null);
     
     try {
-      const mediaInitialized = await initializeMedia();
-      if (!mediaInitialized) {
-        setConnectionStatus('disconnected');
-        return;
-      }
-
+      await initializeMedia();
       const userRef = ref(database, `users/${user.id}`);
       await set(userRef, {
         ...user,
@@ -466,20 +446,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const initializeMedia = async () => {
     try {
-      // First check if any media devices are available
       const devices = await navigator.mediaDevices.enumerateDevices();
       const hasVideoDevice = devices.some(device => device.kind === 'videoinput');
       const hasAudioDevice = devices.some(device => device.kind === 'audioinput');
 
       if (!hasVideoDevice && !hasAudioDevice) {
-        setPermissionError(
-          'No camera or microphone found. Please connect a camera or microphone to your device and try again. ' +
-          'You can also check if your devices are properly connected in your system settings.'
-        );
-        return false;
+        updateVideoState({
+          localStream: null,
+          isVideoEnabled: false,
+          isAudioEnabled: false
+        });
+        return true;
       }
 
-      // Try video and audio first
       if (hasVideoDevice && hasAudioDevice) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -496,14 +475,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             isAudioEnabled: true
           });
 
-          setPermissionError(null);
           return true;
         } catch (error) {
           console.warn('Failed to get both video and audio, trying audio only:', error);
         }
       }
 
-      // If video+audio failed or video device isn't available, try audio only
       if (hasAudioDevice) {
         try {
           const audioStream = await navigator.mediaDevices.getUserMedia({
@@ -519,22 +496,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             isAudioEnabled: true
           });
 
-          setPermissionError(null);
           return true;
         } catch (error) {
-          console.error('Failed to get audio access:', error);
-          if (error instanceof Error && (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
-            setPermissionError(
-              'To use this app, please allow access to your microphone. ' +
-              'Click the microphone icon in your browser\'s address bar to update permissions, ' +
-              'then click "Try Again" below.'
-            );
-          } else {
-            setPermissionError('An error occurred while accessing your microphone. Please check your audio device connections and try again.');
-          }
+          console.warn('Failed to get audio access:', error);
         }
-      } else if (hasVideoDevice) {
-        // If only video is available, try video only
+      }
+
+      if (hasVideoDevice) {
         try {
           const videoStream = await navigator.mediaDevices.getUserMedia({
             video: true,
@@ -549,11 +517,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             isAudioEnabled: false
           });
 
-          setPermissionError(null);
           return true;
         } catch (error) {
-          console.error('Failed to get video access:', error);
-          setPermissionError('An error occurred while accessing your camera. Please check your camera connections and try again.');
+          console.warn('Failed to get video access:', error);
         }
       }
 
@@ -562,11 +528,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isVideoEnabled: false,
         isAudioEnabled: false
       });
-      return false;
+      return true;
     } catch (error) {
       console.error('Error initializing media:', error);
-      setPermissionError('An unexpected error occurred while accessing your media devices. Please refresh the page and try again.');
-      return false;
+      updateVideoState({
+        localStream: null,
+        isVideoEnabled: false,
+        isAudioEnabled: false
+      });
+      return true;
     }
   };
 
