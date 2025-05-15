@@ -101,7 +101,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               onAccept={async () => {
                 root.unmount();
                 requestElement.remove();
-                
+
                 // Initialize media before accepting
                 const mediaInitialized = await initializeMedia();
                 if (!mediaInitialized) {
@@ -113,15 +113,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   return;
                 }
 
-                // Accept the request
+                // Update response with acceptance
                 await set(ref(database, `responses/${request.from}`), {
                   accepted: true,
+                  from: user.id,
                   timestamp: serverTimestamp(),
                 });
-                
+
                 setCurrentChatPartner(request.from);
                 setConnectionStatus('connected');
-                
+
                 // Update both users' status
                 const chatStatus = {
                   status: 'chatting',
@@ -134,7 +135,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   ...user,
                   ...chatStatus,
                 });
-                
+
                 await set(fromUserRef, {
                   ...fromUser,
                   status: 'chatting',
@@ -142,9 +143,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   online: true,
                   lastSeen: serverTimestamp(),
                 });
-
-                // Clear the request
-                await remove(requestsRef);
 
                 // Set up chat room
                 const roomId = [user.id, request.from].sort().join('-');
@@ -163,6 +161,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                     setMessages(messages as ChatMessage[]);
                   }
                 });
+
+                // Clear the request
+                await remove(requestsRef);
               }}
               onDecline={async () => {
                 root.unmount();
@@ -192,8 +193,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const targetUserSnapshot = await get(targetUserRef);
           
           if (targetUserSnapshot.exists()) {
+            const targetUser = targetUserSnapshot.val();
             setCurrentChatPartner(response.from);
             setConnectionStatus('connected');
+
+            // Update own status
+            await set(userRef, {
+              ...user,
+              status: 'chatting',
+              chatPartner: response.from,
+              online: true,
+              lastSeen: serverTimestamp(),
+            });
+
+            // Update target user status
+            await set(targetUserRef, {
+              ...targetUser,
+              status: 'chatting',
+              chatPartner: user.id,
+              online: true,
+              lastSeen: serverTimestamp(),
+            });
             
             // Set up chat room
             const roomId = [user.id, response.from].sort().join('-');
