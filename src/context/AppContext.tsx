@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { ref, onValue, set, remove, onDisconnect, serverTimestamp, get } from 'firebase/database';
 import { database } from '../firebase';
 import { ConnectionStatus, User, ChatMessage, VideoStreamState } from '../types';
+import { ChatRequest } from '../components/ChatRequest';
+import { createRoot } from 'react-dom/client';
 
 interface AppContextType {
   user: User;
@@ -73,12 +75,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const unsubscribeUsers = onValue(usersRef, (snapshot) => {
       if (snapshot.exists()) {
         const users = snapshot.val();
-        const availableUsers = Object.values(users).filter((u: any) => 
-          u.online === true && 
-          u.id !== user.id && 
-          u.status === 'available'
-        );
-        setActiveUsers(availableUsers.length);
+        const onlineUsers = Object.values(users).filter((u: any) => u.online === true && u.id !== user.id);
+        setActiveUsers(onlineUsers.length);
       } else {
         setActiveUsers(0);
       }
@@ -175,18 +173,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (availableUsers.length > 0) {
-        const usersWithMatchingInterests = availableUsers.filter((u: any) => {
-          const commonInterests = u.interests?.filter((interest: string) => 
-            user.interests.includes(interest)
-          );
-          return commonInterests?.length > 0;
-        });
-
-        const matchPool = usersWithMatchingInterests.length > 0 ? 
-          usersWithMatchingInterests : 
-          availableUsers;
-
-        const randomUser = matchPool[Math.floor(Math.random() * matchPool.length)] as any;
+        // Randomize user selection
+        const randomIndex = Math.floor(Math.random() * availableUsers.length);
+        const randomUser = availableUsers[randomIndex] as any;
         return randomUser.id;
       }
     }
@@ -199,14 +188,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const targetUserRef = ref(database, `users/${targetUserId}`);
 
     try {
+      // Check if target user is still available
+      const targetUserSnapshot = await get(targetUserRef);
+      if (!targetUserSnapshot.exists() || targetUserSnapshot.val().status !== 'available') {
+        setConnectionStatus('disconnected');
+        startNewChat();
+        return;
+      }
+
       // Update own status
       await set(userRef, {
-        id: user.id,
-        name: user.name,
+        ...user,
         online: true,
         status: 'requesting',
         lastSeen: serverTimestamp(),
-        interests: user.interests,
       });
 
       // Send request
@@ -225,43 +220,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setConnectionStatus('connected');
             
             // Update both users' status
-            const targetUserSnapshot = await get(targetUserRef);
-            if (targetUserSnapshot.exists()) {
-              await set(targetUserRef, {
-                ...targetUserSnapshot.val(),
-                status: 'chatting',
-                chatPartner: user.id,
-              });
-              
-              await set(userRef, {
-                ...user,
-                status: 'chatting',
-                chatPartner: targetUserId,
-              });
-            }
+            await set(userRef, {
+              ...user,
+              status: 'chatting',
+              chatPartner: targetUserId,
+            });
           } else {
             setConnectionStatus('disconnected');
             startNewChat(); // Try another user if rejected
           }
           unsubscribe();
-          remove(responseRef);
+          await remove(responseRef);
         }
       });
 
-      // Timeout after 15 seconds
+      // Timeout after 10 seconds
       setTimeout(async () => {
-        unsubscribe();
-        const userSnapshot = await get(userRef);
-        if (userSnapshot.exists() && userSnapshot.val().status === 'requesting') {
+        const currentUserSnapshot = await get(userRef);
+        if (currentUserSnapshot.exists() && currentUserSnapshot.val().status === 'requesting') {
+          unsubscribe();
+          await remove(responseRef);
+          await remove(requestRef);
           await set(userRef, {
-            ...userSnapshot.val(),
+            ...user,
             status: 'available',
           });
-          remove(requestRef);
           setConnectionStatus('disconnected');
           startNewChat(); // Try another user if timed out
         }
-      }, 15000);
+      }, 10000);
     } catch (error) {
       console.error('Error sending chat request:', error);
       setConnectionStatus('disconnected');
@@ -316,6 +303,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const clearChat = () => {
     setMessages([]);
+    if (currentChatPartner) {
+      const chatPartnerRef = ref(database, `users/${currentChatPartner}`);
+      remove(chatPartnerRef);
+    }
+    setCurrentChatPartner(null);
   };
 
   const startNewChat = async () => {
@@ -332,13 +324,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return;
       }
 
-      const targetUserId = await findAvailableUser();
-      if (targetUserId) {
-        await sendChatRequest(targetUserId);
-      } else {
-        // No users available, retry after delay
-        setTimeout(startNewChat, 2000);
-      }
+      // Update user status to available
+      const userRef = ref(database, `users/${user.id}`);
+      await set(userRef, {
+        ...user,
+        online: true,
+        status: 'available',
+        lastSeen: serverTimestamp(),
+      });
+
+      const findAndConnect = async () => {
+        const targetUserId = await findAvailableUser();
+        if (targetUserId) {
+          await sendChatRequest(targetUserId);
+        } else {
+          // No users available, retry after delay
+          setTimeout(findAndConnect, 2000);
+        }
+      };
+
+      await findAndConnect();
     } catch (error) {
       console.error('Error starting new chat:', error);
       setConnectionStatus('disconnected');
