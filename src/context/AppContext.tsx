@@ -104,6 +104,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 requestElement.remove();
 
                 await initializeMedia();
+
+                // Send acceptance response first
+                await set(ref(database, `responses/${request.from}`), {
+                  accepted: true,
+                  from: user.id,
+                  timestamp: serverTimestamp(),
+                });
+
                 setCurrentChatPartner(request.from);
                 setConnectionStatus('connected');
 
