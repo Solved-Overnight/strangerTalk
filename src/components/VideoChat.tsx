@@ -89,38 +89,45 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
         {connectionStatus === 'disconnected' ? (
           <div className="flex flex-col items-center justify-center space-y-8 p-6 md:p-12 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10 max-w-lg mx-4">
             <div className="text-center space-y-4">
-              <h2 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Welcome to StrangerChat</h2>
-              <p className="text-gray-300 text-base md:text-lg">Connect with people from around the world through live video chat.</p>
+              <h2 className="text-2xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">Welcome to StrangerChat</h2>
+              <p className="text-gray-300 text-sm md:text-lg">Connect with people from around the world through live video chat.</p>
             </div>
             
             <div className="w-full space-y-6">
-              <div className="flex flex-wrap items-center justify-center gap-4 text-gray-400 text-sm md:text-base">
-                <div className="flex items-center space-x-2">
-                  <Video size={20} />
-                  <span>Video Chat</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-300">
+                <div className="flex items-center justify-center space-x-3 p-4 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10">
+                  <Video size={24} className="text-blue-400" />
+                  <span>HD Video Chat</span>
                 </div>
-                <span className="hidden md:inline">•</span>
-                <div className="flex items-center space-x-2">
-                  <MessageSquare size={20} />
-                  <span>Text Chat</span>
+                <div className="flex items-center justify-center space-x-3 p-4 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10">
+                  <MessageSquare size={24} className="text-purple-400" />
+                  <span>Text Messaging</span>
                 </div>
-                <span className="hidden md:inline">•</span>
-                <div className="flex items-center space-x-2">
-                  <Users size={20} />
-                  <span>{activeUsers} Online</span>
+                <div className="flex items-center justify-center space-x-3 p-4 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10">
+                  <Users size={24} className="text-pink-400" />
+                  <span>{activeUsers} Users Online</span>
+                </div>
+                <div className="flex items-center justify-center space-x-3 p-4 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10">
+                  <SkipForward size={24} className="text-green-400" />
+                  <span>Skip Anytime</span>
                 </div>
               </div>
               
               <button 
                 onClick={startNewChat}
-                className="group relative w-full py-4 px-8 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 text-white font-medium rounded-full overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25 hover:scale-[1.02] active:scale-95"
+                className="group relative w-full py-4 px-8 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-full overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25 hover:scale-[1.02] active:scale-95"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                <span className="relative flex items-center justify-center space-x-2">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-400/50 via-purple-400/50 to-pink-400/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 blur-xl"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 group-hover:opacity-90 transition-opacity duration-300"></div>
+                <span className="relative flex items-center justify-center space-x-2 text-white font-medium">
                   <Video size={20} />
                   <span>Start Video Chat</span>
                 </span>
               </button>
+
+              <p className="text-center text-sm text-gray-400">
+                By starting a chat, you agree to our Terms of Service and Privacy Policy
+              </p>
             </div>
           </div>
         ) : (

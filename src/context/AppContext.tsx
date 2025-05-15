@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { ref, onValue, set, remove, onDisconnect, serverTimestamp, get } from 'firebase/database';
 import { database } from '../firebase';
 import { ConnectionStatus, User, ChatMessage, VideoStreamState } from '../types';
+import { ChatRequest } from '../components/ChatRequest';
+import { createRoot } from 'react-dom/client';
 
 interface AppContextType {
   user: User;
@@ -175,6 +177,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (availableUsers.length > 0) {
+        // Update own status to available first
+        const userRef = ref(database, `users/${user.id}`);
+        await set(userRef, {
+          id: user.id,
+          name: user.name,
+          online: true,
+          status: 'available',
+          lastSeen: serverTimestamp(),
+          interests: user.interests,
+        });
+
         const usersWithMatchingInterests = availableUsers.filter((u: any) => {
           const commonInterests = u.interests?.filter((interest: string) => 
             user.interests.includes(interest)
@@ -240,6 +253,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               });
             }
           } else {
+            // Reset status and try another user
+            await set(userRef, {
+              ...user,
+              status: 'available',
+            });
             setConnectionStatus('disconnected');
             startNewChat(); // Try another user if rejected
           }
@@ -331,6 +349,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setConnectionStatus('disconnected');
         return;
       }
+
+      // Update user status to available
+      const userRef = ref(database, `users/${user.id}`);
+      await set(userRef, {
+        id: user.id,
+        name: user.name,
+        online: true,
+        status: 'available',
+        lastSeen: serverTimestamp(),
+        interests: user.interests,
+      });
 
       const targetUserId = await findAvailableUser();
       if (targetUserId) {
