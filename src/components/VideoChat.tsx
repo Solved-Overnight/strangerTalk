@@ -17,7 +17,8 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
     startNewChat,
     activeUsers,
     user,
-    currentChatPartner 
+    currentChatPartner,
+    endChat
   } = useAppContext();
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -36,13 +37,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
   }, [videoState.remoteStream]);
 
   const handleEndChat = () => {
-    if (videoState.localStream) {
-      videoState.localStream.getTracks().forEach(track => track.stop());
-    }
-    if (videoState.remoteStream) {
-      videoState.remoteStream.getTracks().forEach(track => track.stop());
-    }
-    setConnectionStatus('disconnected');
+    endChat(true);
   };
 
   return (

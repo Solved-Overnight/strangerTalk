@@ -5,6 +5,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
 import { ProfileModal } from './components/ProfileModal';
 import { ParticleBackground } from './components/ParticleBackground';
+import { Toaster } from 'react-hot-toast';
 
 function App() {
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -29,6 +30,20 @@ function App() {
         <ProfileModal 
           isOpen={isProfileOpen} 
           onClose={() => setIsProfileOpen(false)} 
+        />
+
+        <Toaster
+          position="top-center"
+          reverseOrder={false}
+          toastOptions={{
+            duration: 5000,
+            style: {
+              background: '#333',
+              color: '#fff',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            },
+          }}
         />
       </div>
     </AppProvider>

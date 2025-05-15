@@ -5,6 +5,7 @@ import { database } from '../firebase';
 import { ConnectionStatus, User, ChatMessage, VideoStreamState } from '../types';
 import { ChatRequest } from '../components/ChatRequest';
 import { createRoot } from 'react-dom/client';
+import toast from 'react-hot-toast';
 
 interface AppContextType {
   user: User;
@@ -23,6 +24,7 @@ interface AppContextType {
   skipChat: () => void;
   startNewChat: () => void;
   retryMediaAccess: () => void;
+  endChat: (showNotification?: boolean) => void;
 }
 
 const defaultUser: User = {
@@ -48,6 +50,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeUsers, setActiveUsers] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [currentChatPartner, setCurrentChatPartner] = useState<User | null>(null);
+
+  const endChat = async (showNotification = true) => {
+    if (currentChatPartner && showNotification) {
+      const partnerName = currentChatPartner.nickname || 'Anonymous';
+      toast.error(`${partnerName} ended the chat`);
+    }
+
+    if (videoState.localStream) {
+      videoState.localStream.getTracks().forEach(track => track.stop());
+    }
+    if (videoState.remoteStream) {
+      videoState.remoteStream.getTracks().forEach(track => track.stop());
+    }
+
+    setVideoState(defaultVideoState);
+    setConnectionStatus('disconnected');
+    setCurrentChatPartner(null);
+    setMessages([]);
+
+    const userRef = ref(database, `users/${user.id}`);
+    await set(userRef, {
+      ...user,
+      status: 'available',
+      chatPartner: null,
+      online: true,
+      lastSeen: serverTimestamp(),
+    });
+  };
 
   useEffect(() => {
     const userRef = ref(database, `users/${user.id}`);
@@ -246,12 +276,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    const chatPartnerStatusRef = ref(database, `users/${currentChatPartner?.id}`);
-    const unsubscribeChatPartner = onValue(chatPartnerStatusRef, (snapshot) => {
-      if (currentChatPartner && !snapshot.exists()) {
-        setConnectionStatus('disconnected');
-        setCurrentChatPartner(null);
-        clearChat();
+    // Monitor chat partner's connection status
+    const unsubscribeChatPartnerStatus = onValue(ref(database, '.info/connected'), async (snapshot) => {
+      if (snapshot.val() && currentChatPartner) {
+        const partnerRef = ref(database, `users/${currentChatPartner.id}`);
+        
+        onValue(partnerRef, (partnerSnapshot) => {
+          if (!partnerSnapshot.exists() && connectionStatus === 'connected') {
+            endChat(true);
+          }
+        });
       }
     });
 
@@ -260,7 +294,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeUsers();
       unsubscribeRequests();
       unsubscribeResponses();
-      unsubscribeChatPartner();
+      unsubscribeChatPartnerStatus();
       remove(userRef);
     };
   }, [user.id, user.nickname, connectionStatus, currentChatPartner]);
@@ -421,8 +455,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const skipChat = () => {
     if (connectionStatus === 'connected') {
-      setConnectionStatus('disconnected');
-      clearChat();
+      endChat(false);
       startNewChat();
     }
   };
@@ -603,7 +636,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     toggleAudio,
     skipChat,
     startNewChat,
-    retryMediaAccess
+    retryMediaAccess,
+    endChat
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
