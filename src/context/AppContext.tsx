@@ -48,7 +48,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [currentChatPartner, setCurrentChatPartner] = useState<string | null>(null);
 
-  // Handle user presence and status
   useEffect(() => {
     const userRef = ref(database, `users/${user.id}`);
     const connectedRef = ref(database, '.info/connected');
@@ -103,6 +102,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 root.unmount();
                 requestElement.remove();
                 
+                // Initialize media before accepting
+                const mediaInitialized = await initializeMedia();
+                if (!mediaInitialized) {
+                  await set(ref(database, `responses/${request.from}`), {
+                    accepted: false,
+                    error: 'media_failed',
+                    timestamp: serverTimestamp(),
+                  });
+                  return;
+                }
+
+                // Accept the request
                 await set(ref(database, `responses/${request.from}`), {
                   accepted: true,
                   timestamp: serverTimestamp(),
@@ -112,16 +123,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 setConnectionStatus('connected');
                 
                 // Update both users' status
-                await set(userRef, {
-                  ...user,
+                const chatStatus = {
                   status: 'chatting',
                   chatPartner: request.from,
+                  online: true,
+                  lastSeen: serverTimestamp(),
+                };
+
+                await set(userRef, {
+                  ...user,
+                  ...chatStatus,
                 });
                 
                 await set(fromUserRef, {
                   ...fromUser,
                   status: 'chatting',
                   chatPartner: user.id,
+                  online: true,
+                  lastSeen: serverTimestamp(),
+                });
+
+                // Clear the request
+                await remove(requestsRef);
+
+                // Set up chat room
+                const roomId = [user.id, request.from].sort().join('-');
+                const roomRef = ref(database, `rooms/${roomId}`);
+                await set(roomRef, {
+                  participants: [user.id, request.from],
+                  startedAt: serverTimestamp(),
+                  active: true,
+                });
+
+                // Listen for room messages
+                const messagesRef = ref(database, `rooms/${roomId}/messages`);
+                onValue(messagesRef, (snapshot) => {
+                  if (snapshot.exists()) {
+                    const messages = Object.values(snapshot.val());
+                    setMessages(messages as ChatMessage[]);
+                  }
                 });
               }}
               onDecline={async () => {
@@ -132,11 +172,53 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                   accepted: false,
                   timestamp: serverTimestamp(),
                 });
+
+                await remove(requestsRef);
               }}
             />
           );
         }
-        await remove(requestsRef);
+      }
+    });
+
+    // Listen for responses to our requests
+    const responsesRef = ref(database, `responses/${user.id}`);
+    const unsubscribeResponses = onValue(responsesRef, async (snapshot) => {
+      if (snapshot.exists() && connectionStatus === 'connecting') {
+        const response = snapshot.val();
+        
+        if (response.accepted) {
+          const targetUserRef = ref(database, `users/${response.from}`);
+          const targetUserSnapshot = await get(targetUserRef);
+          
+          if (targetUserSnapshot.exists()) {
+            setCurrentChatPartner(response.from);
+            setConnectionStatus('connected');
+            
+            // Set up chat room
+            const roomId = [user.id, response.from].sort().join('-');
+            const roomRef = ref(database, `rooms/${roomId}`);
+            await set(roomRef, {
+              participants: [user.id, response.from],
+              startedAt: serverTimestamp(),
+              active: true,
+            });
+
+            // Listen for room messages
+            const messagesRef = ref(database, `rooms/${roomId}/messages`);
+            onValue(messagesRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const messages = Object.values(snapshot.val());
+                setMessages(messages as ChatMessage[]);
+              }
+            });
+          }
+        } else {
+          setConnectionStatus('disconnected');
+          startNewChat(); // Try another user if rejected
+        }
+        
+        await remove(responsesRef);
       }
     });
 
@@ -155,6 +237,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeConnection();
       unsubscribeUsers();
       unsubscribeRequests();
+      unsubscribeResponses();
       unsubscribeChatPartner();
       remove(userRef);
     };
@@ -224,6 +307,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               ...user,
               status: 'chatting',
               chatPartner: targetUserId,
+              online: true,
+              lastSeen: serverTimestamp(),
+            });
+
+            // Set up chat room
+            const roomId = [user.id, targetUserId].sort().join('-');
+            const roomRef = ref(database, `rooms/${roomId}`);
+            await set(roomRef, {
+              participants: [user.id, targetUserId],
+              startedAt: serverTimestamp(),
+              active: true,
+            });
+
+            // Listen for room messages
+            const messagesRef = ref(database, `rooms/${roomId}/messages`);
+            onValue(messagesRef, (snapshot) => {
+              if (snapshot.exists()) {
+                const messages = Object.values(snapshot.val());
+                setMessages(messages as ChatMessage[]);
+              }
             });
           } else {
             setConnectionStatus('disconnected');
@@ -244,6 +347,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           await set(userRef, {
             ...user,
             status: 'available',
+            online: true,
+            lastSeen: serverTimestamp(),
           });
           setConnectionStatus('disconnected');
           startNewChat(); // Try another user if timed out
@@ -260,6 +365,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const sendMessage = (text: string) => {
+    if (!currentChatPartner) return;
+
+    const roomId = [user.id, currentChatPartner].sort().join('-');
+    const messageRef = ref(database, `rooms/${roomId}/messages/${uuidv4()}`);
+    
     const newMessage: ChatMessage = {
       id: uuidv4(),
       senderId: user.id,
@@ -267,10 +377,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       timestamp: Date.now(),
     };
     
-    const messageRef = ref(database, `messages/${newMessage.id}`);
     set(messageRef, newMessage);
-    
-    setMessages(prev => [...prev, newMessage]);
   };
 
   const toggleVideo = () => {
@@ -301,11 +408,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const clearChat = () => {
+  const clearChat = async () => {
     setMessages([]);
     if (currentChatPartner) {
-      const chatPartnerRef = ref(database, `users/${currentChatPartner}`);
-      remove(chatPartnerRef);
+      const roomId = [user.id, currentChatPartner].sort().join('-');
+      const roomRef = ref(database, `rooms/${roomId}`);
+      await set(roomRef, { active: false });
+      
+      const userRef = ref(database, `users/${user.id}`);
+      await set(userRef, {
+        ...user,
+        status: 'available',
+        chatPartner: null,
+        online: true,
+        lastSeen: serverTimestamp(),
+      });
     }
     setCurrentChatPartner(null);
   };
