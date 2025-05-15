@@ -135,6 +135,20 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
                 playsInline 
                 className="absolute inset-0 w-full h-full object-cover z-10"
               />
+            ) : connectionStatus === 'connected' ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50">
+                <div className="text-center space-y-4">
+                  <div className="w-24 h-24 rounded-full bg-gray-800 mx-auto flex items-center justify-center">
+                    <Users className="text-gray-400" size={48} />
+                  </div>
+                  <p className="text-white/70 text-xl font-medium">
+                    Connected with {currentChatPartner?.nickname || 'Anonymous'}
+                  </p>
+                  <p className="text-gray-400">
+                    Waiting for video stream...
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="flex flex-col items-center space-y-6">
@@ -213,7 +227,9 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
                 aria-label="Skip to next person"
               >
                 <SkipForward className="text-white" size={20} />
-                <span className="hidden md:inline">Find Next</span>
+                <span className="hidden m
+
+d:inline">Find Next</span>
               </button>
               
               <button 

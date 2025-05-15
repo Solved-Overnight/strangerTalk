@@ -22,6 +22,7 @@ interface AppContextType {
   skipChat: () => void;
   startNewChat: () => void;
   retryMediaAccess: () => void;
+  currentChatPartner: User | null;
 }
 
 const defaultUser: User = {
@@ -46,7 +47,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeUsers, setActiveUsers] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [currentChatPartner, setCurrentChatPartner] = useState<string | null>(null);
+  const [currentChatPartner, setCurrentChatPartner] = useState<User | null>(null);
 
   useEffect(() => {
     const userRef = ref(database, `users/${user.id}`);
@@ -103,17 +104,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 root.unmount();
                 requestElement.remove();
 
+                // Initialize media before setting connection status
                 await initializeMedia();
+                
+                // Set the current chat partner
+                setCurrentChatPartner(fromUser);
+                
+                // Update connection status after media is initialized
+                setConnectionStatus('connected');
 
-                // Send acceptance response first
+                // Send acceptance response
                 await set(ref(database, `responses/${request.from}`), {
                   accepted: true,
                   from: user.id,
                   timestamp: serverTimestamp(),
                 });
-
-                setCurrentChatPartner(request.from);
-                setConnectionStatus('connected');
 
                 const chatStatus = {
                   status: 'chatting',
@@ -181,7 +186,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           
           if (targetUserSnapshot.exists()) {
             const targetUser = targetUserSnapshot.val();
-            setCurrentChatPartner(response.from);
+            setCurrentChatPartner(targetUser);
             setConnectionStatus('connected');
 
             await set(userRef, {
@@ -225,7 +230,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    const chatPartnerStatusRef = ref(database, `users/${currentChatPartner}`);
+    const chatPartnerStatusRef = ref(database, `users/${currentChatPartner?.id}`);
     const unsubscribeChatPartner = onValue(chatPartnerStatusRef, (snapshot) => {
       if (currentChatPartner && !snapshot.exists()) {
         setConnectionStatus('disconnected');
@@ -295,7 +300,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (snapshot.exists()) {
           const response = snapshot.val();
           if (response.accepted) {
-            setCurrentChatPartner(targetUserId);
+            const targetUser = targetUserSnapshot.val();
+            setCurrentChatPartner(targetUser);
             setConnectionStatus('connected');
             
             await set(userRef, {
@@ -359,7 +365,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const sendMessage = (text: string) => {
     if (!currentChatPartner) return;
 
-    const roomId = [user.id, currentChatPartner].sort().join('-');
+    const roomId = [user.id, currentChatPartner.id].sort().join('-');
     const messageRef = ref(database, `rooms/${roomId}/messages/${uuidv4()}`);
     
     const newMessage: ChatMessage = {
@@ -403,7 +409,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const clearChat = async () => {
     setMessages([]);
     if (currentChatPartner) {
-      const roomId = [user.id, currentChatPartner].sort().join('-');
+      const roomId = [user.id, currentChatPartner.id].sort().join('-');
       const roomRef = ref(database, `rooms/${roomId}`);
       await set(roomRef, { active: false });
       
@@ -567,6 +573,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     messages,
     activeUsers,
     permissionError,
+    currentChatPartner,
     setUser,
     setConnectionStatus,
     updateVideoState,
