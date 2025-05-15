@@ -227,9 +227,7 @@ export const VideoChat: React.FC<VideoChatProps> = ({ onToggleChat }) => {
                 aria-label="Skip to next person"
               >
                 <SkipForward className="text-white" size={20} />
-                <span className="hidden m
-
-d:inline">Find Next</span>
+                <span className="hidden md:inline">Find Next</span>
               </button>
               
               <button 
