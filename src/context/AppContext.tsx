@@ -86,6 +86,38 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
+  // Monitor chat room status
+  useEffect(() => {
+    if (currentRoomId && connectionStatus === 'connected') {
+      const roomRef = ref(database, `rooms/${currentRoomId}`);
+      const unsubscribeRoom = onValue(roomRef, (snapshot) => {
+        if (!snapshot.exists() || !snapshot.val().active) {
+          endChat(true);
+        }
+      });
+
+      return () => unsubscribeRoom();
+    }
+  }, [currentRoomId, connectionStatus]);
+
+  // Monitor chat partner's connection status
+  useEffect(() => {
+    const unsubscribeChatPartnerStatus = onValue(ref(database, '.info/connected'), async (snapshot) => {
+      if (snapshot.val() && currentChatPartner) {
+        const partnerRef = ref(database, `users/${currentChatPartner.id}`);
+        
+        onValue(partnerRef, (partnerSnapshot) => {
+          if (!partnerSnapshot.exists() && connectionStatus === 'connected') {
+            endChat(true);
+          }
+        });
+      }
+    });
+
+    return () => unsubscribeChatPartnerStatus();
+  }, [currentChatPartner, connectionStatus]);
+
+  // Main connection and user status monitoring
   useEffect(() => {
     const userRef = ref(database, `users/${user.id}`);
     const connectedRef = ref(database, '.info/connected');
@@ -282,42 +314,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     });
 
-    // Monitor chat room status
-    useEffect(() => {
-      if (currentRoomId && connectionStatus === 'connected') {
-        const roomRef = ref(database, `rooms/${currentRoomId}`);
-        const unsubscribeRoom = onValue(roomRef, (snapshot) => {
-          if (!snapshot.exists() || !snapshot.val().active) {
-            endChat(true);
-          }
-        });
-
-        return () => unsubscribeRoom();
-      }
-    }, [currentRoomId, connectionStatus]);
-
-    // Monitor chat partner's connection status
-    const unsubscribeChatPartnerStatus = onValue(ref(database, '.info/connected'), async (snapshot) => {
-      if (snapshot.val() && currentChatPartner) {
-        const partnerRef = ref(database, `users/${currentChatPartner.id}`);
-        
-        onValue(partnerRef, (partnerSnapshot) => {
-          if (!partnerSnapshot.exists() && connectionStatus === 'connected') {
-            endChat(true);
-          }
-        });
-      }
-    });
-
     return () => {
       unsubscribeConnection();
       unsubscribeUsers();
       unsubscribeRequests();
       unsubscribeResponses();
-      unsubscribeChatPartnerStatus();
       remove(userRef);
     };
-  }, [user.id, user.nickname, connectionStatus, currentChatPartner, currentRoomId]);
+  }, [user.id, user.nickname, connectionStatus]);
 
   const findAvailableUser = async () => {
     const usersRef = ref(database, 'users');
