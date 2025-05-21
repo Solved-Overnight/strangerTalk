@@ -91,31 +91,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (currentRoomId && connectionStatus === 'connected') {
       const roomRef = ref(database, `rooms/${currentRoomId}`);
       const unsubscribeRoom = onValue(roomRef, (snapshot) => {
-        if (!snapshot.exists() || !snapshot.val().active) {
+        if (snapshot.exists()) {
+          const roomData = snapshot.val();
+          if (!roomData.active) {
+            endChat(true);
+          } else if (roomData.participants) {
+            const isParticipant = roomData.participants.includes(user.id);
+            if (!isParticipant) {
+              endChat(true);
+            }
+          }
+        } else {
           endChat(true);
         }
       });
 
       return () => unsubscribeRoom();
     }
-  }, [currentRoomId, connectionStatus]);
+  }, [currentRoomId, connectionStatus, user.id]);
 
   // Monitor chat partner's connection status
   useEffect(() => {
-    const unsubscribeChatPartnerStatus = onValue(ref(database, '.info/connected'), async (snapshot) => {
-      if (snapshot.val() && currentChatPartner) {
-        const partnerRef = ref(database, `users/${currentChatPartner.id}`);
-        
-        onValue(partnerRef, (partnerSnapshot) => {
-          if (!partnerSnapshot.exists() && connectionStatus === 'connected') {
+    if (currentChatPartner && connectionStatus === 'connected') {
+      const partnerRef = ref(database, `users/${currentChatPartner.id}`);
+      const unsubscribePartner = onValue(partnerRef, (snapshot) => {
+        if (!snapshot.exists()) {
+          endChat(true);
+        } else {
+          const partnerData = snapshot.val();
+          if (!partnerData.online || partnerData.currentRoomId !== currentRoomId) {
             endChat(true);
           }
-        });
-      }
-    });
+        }
+      });
 
-    return () => unsubscribeChatPartnerStatus();
-  }, [currentChatPartner, connectionStatus]);
+      return () => unsubscribePartner();
+    }
+  }, [currentChatPartner, connectionStatus, currentRoomId]);
 
   // Main connection and user status monitoring
   useEffect(() => {
@@ -178,7 +190,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
                 setCurrentChatPartner(fromUser);
                 setConnectionStatus('connected');
 
-                const roomId = [user.id, request.from].sort().join('-');
+                const roomId = request.roomId || [user.id, request.from].sort().join('-');
                 setCurrentRoomId(roomId);
 
                 await set(ref(database, `responses/${request.from}`), {
@@ -321,7 +333,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeResponses();
       remove(userRef);
     };
-  }, [user.id, user.nickname, connectionStatus]);
+  }, [user.id, user.nickname]);
 
   const findAvailableUser = async () => {
     const usersRef = ref(database, 'users');
