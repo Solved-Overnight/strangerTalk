@@ -88,45 +88,42 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Monitor chat room status
   useEffect(() => {
-    if (currentRoomId && connectionStatus === 'connected') {
-      const roomRef = ref(database, `rooms/${currentRoomId}`);
-      const unsubscribeRoom = onValue(roomRef, (snapshot) => {
-        if (snapshot.exists()) {
-          const roomData = snapshot.val();
-          if (!roomData.active) {
-            endChat(true);
-          } else if (roomData.participants) {
-            const isParticipant = roomData.participants.includes(user.id);
-            if (!isParticipant) {
-              endChat(true);
-            }
-          }
-        } else {
-          endChat(true);
-        }
-      });
+    if (!currentRoomId || !connectionStatus) return;
 
-      return () => unsubscribeRoom();
-    }
+    const roomRef = ref(database, `rooms/${currentRoomId}`);
+    const unsubscribeRoom = onValue(roomRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        endChat(true);
+        return;
+      }
+
+      const roomData = snapshot.val();
+      if (!roomData.active || !roomData.participants?.includes(user.id)) {
+        endChat(true);
+      }
+    });
+
+    return () => unsubscribeRoom();
   }, [currentRoomId, connectionStatus, user.id]);
 
   // Monitor chat partner's connection status
   useEffect(() => {
-    if (currentChatPartner && connectionStatus === 'connected') {
-      const partnerRef = ref(database, `users/${currentChatPartner.id}`);
-      const unsubscribePartner = onValue(partnerRef, (snapshot) => {
-        if (!snapshot.exists()) {
-          endChat(true);
-        } else {
-          const partnerData = snapshot.val();
-          if (!partnerData.online || partnerData.currentRoomId !== currentRoomId) {
-            endChat(true);
-          }
-        }
-      });
+    if (!currentChatPartner || connectionStatus !== 'connected') return;
 
-      return () => unsubscribePartner();
-    }
+    const partnerRef = ref(database, `users/${currentChatPartner.id}`);
+    const unsubscribePartner = onValue(partnerRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        endChat(true);
+        return;
+      }
+
+      const partnerData = snapshot.val();
+      if (!partnerData.online || partnerData.currentRoomId !== currentRoomId) {
+        endChat(true);
+      }
+    });
+
+    return () => unsubscribePartner();
   }, [currentChatPartner, connectionStatus, currentRoomId]);
 
   // Main connection and user status monitoring
@@ -182,67 +179,73 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               senderNickname={fromUser.nickname || 'Anonymous'}
               receiverNickname={user.nickname || 'Anonymous'}
               onAccept={async () => {
-                root.unmount();
-                requestElement.remove();
+                try {
+                  root.unmount();
+                  requestElement.remove();
 
-                await initializeMedia();
-                
-                setCurrentChatPartner(fromUser);
-                setConnectionStatus('connected');
+                  await initializeMedia();
+                  
+                  const roomId = request.roomId || [user.id, request.from].sort().join('-');
+                  setCurrentRoomId(roomId);
+                  setCurrentChatPartner(fromUser);
+                  setConnectionStatus('connected');
 
-                const roomId = request.roomId || [user.id, request.from].sort().join('-');
-                setCurrentRoomId(roomId);
+                  // Update room status first
+                  const roomRef = ref(database, `rooms/${roomId}`);
+                  await set(roomRef, {
+                    participants: [user.id, request.from],
+                    startedAt: serverTimestamp(),
+                    active: true,
+                  });
 
-                await set(ref(database, `responses/${request.from}`), {
-                  accepted: true,
-                  from: user.id,
-                  timestamp: serverTimestamp(),
-                  userInfo: {
-                    id: user.id,
-                    nickname: user.nickname,
-                    interests: user.interests
-                  },
-                  roomId
-                });
+                  // Update user status
+                  await set(userRef, {
+                    ...user,
+                    status: 'chatting',
+                    chatPartner: request.from,
+                    online: true,
+                    lastSeen: serverTimestamp(),
+                    currentRoomId: roomId
+                  });
 
-                const chatStatus = {
-                  status: 'chatting',
-                  chatPartner: request.from,
-                  online: true,
-                  lastSeen: serverTimestamp(),
-                  currentRoomId: roomId
-                };
+                  // Update partner status
+                  await set(fromUserRef, {
+                    ...fromUser,
+                    status: 'chatting',
+                    chatPartner: user.id,
+                    online: true,
+                    lastSeen: serverTimestamp(),
+                    currentRoomId: roomId
+                  });
 
-                await set(userRef, {
-                  ...user,
-                  ...chatStatus,
-                });
+                  // Send acceptance response
+                  await set(ref(database, `responses/${request.from}`), {
+                    accepted: true,
+                    from: user.id,
+                    timestamp: serverTimestamp(),
+                    userInfo: {
+                      id: user.id,
+                      nickname: user.nickname,
+                      interests: user.interests
+                    },
+                    roomId
+                  });
 
-                await set(fromUserRef, {
-                  ...fromUser,
-                  status: 'chatting',
-                  chatPartner: user.id,
-                  online: true,
-                  lastSeen: serverTimestamp(),
-                  currentRoomId: roomId
-                });
+                  // Setup message listener
+                  const messagesRef = ref(database, `rooms/${roomId}/messages`);
+                  onValue(messagesRef, (snapshot) => {
+                    if (snapshot.exists()) {
+                      const messages = Object.values(snapshot.val());
+                      setMessages(messages as ChatMessage[]);
+                    }
+                  });
 
-                const roomRef = ref(database, `rooms/${roomId}`);
-                await set(roomRef, {
-                  participants: [user.id, request.from],
-                  startedAt: serverTimestamp(),
-                  active: true,
-                });
-
-                const messagesRef = ref(database, `rooms/${roomId}/messages`);
-                onValue(messagesRef, (snapshot) => {
-                  if (snapshot.exists()) {
-                    const messages = Object.values(snapshot.val());
-                    setMessages(messages as ChatMessage[]);
-                  }
-                });
-
-                await remove(requestsRef);
+                  // Remove request
+                  await remove(requestsRef);
+                } catch (error) {
+                  console.error('Error accepting chat request:', error);
+                  endChat(true);
+                }
               }}
               onDecline={async () => {
                 root.unmount();
@@ -267,55 +270,63 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const response = snapshot.val();
         
         if (response.accepted) {
-          await initializeMedia();
-          
-          const targetUserRef = ref(database, `users/${response.from}`);
-          const targetUserSnapshot = await get(targetUserRef);
-          
-          if (targetUserSnapshot.exists()) {
-            const targetUser = targetUserSnapshot.val();
+          try {
+            await initializeMedia();
             
-            setCurrentChatPartner({
-              id: response.from,
-              nickname: response.userInfo?.nickname || 'Anonymous',
-              interests: response.userInfo?.interests || []
-            });
+            const targetUserRef = ref(database, `users/${response.from}`);
+            const targetUserSnapshot = await get(targetUserRef);
             
-            setConnectionStatus('connected');
-            setCurrentRoomId(response.roomId);
+            if (targetUserSnapshot.exists()) {
+              const targetUser = targetUserSnapshot.val();
+              
+              setCurrentChatPartner({
+                id: response.from,
+                nickname: response.userInfo?.nickname || 'Anonymous',
+                interests: response.userInfo?.interests || []
+              });
+              
+              setConnectionStatus('connected');
+              setCurrentRoomId(response.roomId);
 
-            await set(userRef, {
-              ...user,
-              status: 'chatting',
-              chatPartner: response.from,
-              online: true,
-              lastSeen: serverTimestamp(),
-              currentRoomId: response.roomId
-            });
+              // Update room status
+              const roomRef = ref(database, `rooms/${response.roomId}`);
+              await set(roomRef, {
+                participants: [user.id, response.from],
+                startedAt: serverTimestamp(),
+                active: true,
+              });
 
-            await set(targetUserRef, {
-              ...targetUser,
-              status: 'chatting',
-              chatPartner: user.id,
-              online: true,
-              lastSeen: serverTimestamp(),
-              currentRoomId: response.roomId
-            });
-            
-            const roomRef = ref(database, `rooms/${response.roomId}`);
-            await set(roomRef, {
-              participants: [user.id, response.from],
-              startedAt: serverTimestamp(),
-              active: true,
-            });
+              // Update user statuses
+              await set(userRef, {
+                ...user,
+                status: 'chatting',
+                chatPartner: response.from,
+                online: true,
+                lastSeen: serverTimestamp(),
+                currentRoomId: response.roomId
+              });
 
-            const messagesRef = ref(database, `rooms/${response.roomId}/messages`);
-            onValue(messagesRef, (snapshot) => {
-              if (snapshot.exists()) {
-                const messages = Object.values(snapshot.val());
-                setMessages(messages as ChatMessage[]);
-              }
-            });
+              await set(targetUserRef, {
+                ...targetUser,
+                status: 'chatting',
+                chatPartner: user.id,
+                online: true,
+                lastSeen: serverTimestamp(),
+                currentRoomId: response.roomId
+              });
+
+              // Setup message listener
+              const messagesRef = ref(database, `rooms/${response.roomId}/messages`);
+              onValue(messagesRef, (snapshot) => {
+                if (snapshot.exists()) {
+                  const messages = Object.values(snapshot.val());
+                  setMessages(messages as ChatMessage[]);
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Error handling chat response:', error);
+            endChat(true);
           }
         } else {
           setConnectionStatus('disconnected');
@@ -400,6 +411,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             setCurrentChatPartner(targetUser);
             setConnectionStatus('connected');
             
+            // Update room status
+            const roomRef = ref(database, `rooms/${roomId}`);
+            await set(roomRef, {
+              participants: [user.id, targetUserId],
+              startedAt: serverTimestamp(),
+              active: true,
+            });
+
+            // Update user statuses
             await set(userRef, {
               ...user,
               status: 'chatting',
@@ -409,13 +429,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
               currentRoomId: roomId
             });
 
-            const roomRef = ref(database, `rooms/${roomId}`);
-            await set(roomRef, {
-              participants: [user.id, targetUserId],
-              startedAt: serverTimestamp(),
-              active: true,
+            await set(targetUserRef, {
+              ...targetUser,
+              status: 'chatting',
+              chatPartner: user.id,
+              online: true,
+              lastSeen: serverTimestamp(),
+              currentRoomId: roomId
             });
 
+            // Setup message listener
             const messagesRef = ref(database, `rooms/${roomId}/messages`);
             onValue(messagesRef, (snapshot) => {
               if (snapshot.exists()) {
